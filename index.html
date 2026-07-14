@@ -53,6 +53,39 @@ function sAlarm(){beep(520,0.12,'sawtooth',0.04);setTimeout(()=>beep(380,0.12,'s
 function sDoor(){beep(180,0.12,'triangle',0.05)}
 function sWater(){beep(700,0.05,'sine',0.03);setTimeout(()=>beep(500,0.08,'sine',0.03),60)}
 
+// ================= music (original chiptunes, swiftie-coded) =================
+let MUS={on:true,tune:null,step:0,next:0};
+try{MUS.on=localStorage.getItem('ww_mute')!=='1';}catch(e){}
+const NOTE=m=>440*Math.pow(2,(m-69)/12);
+const TUNES={ // 32-step loops, classic pop I-V-vi-IV at heart
+ salon:{bpm:118,vol:1,
+  bass:[36,0,48,0,36,0,48,0,43,0,55,0,43,0,55,0,45,0,57,0,45,0,57,0,41,0,53,0,41,0,53,0],
+  mel:[76,0,79,0,76,74,72,0,79,0,81,0,79,0,74,0,81,0,84,0,81,79,76,0,77,76,74,72,0,74,76,0]},
+ sneak:{bpm:92,vol:0.8,
+  bass:[33,0,0,33,0,0,36,0,33,0,0,33,0,0,32,0,33,0,0,33,0,0,36,0,40,0,39,0,38,0,37,0],
+  mel:[0,0,69,0,0,0,68,0,0,0,69,0,72,0,0,0,0,0,69,0,0,0,68,0,64,0,0,0,0,0,0,0]},
+ panic:{bpm:168,vol:1,
+  bass:[33,33,45,33,33,33,45,33,31,31,43,31,31,31,43,31,29,29,41,29,29,29,41,29,35,35,47,35,35,35,47,35],
+  mel:[81,0,79,0,77,0,76,0,79,0,77,0,76,0,74,0,77,0,76,0,74,0,72,0,76,74,72,0,68,0,72,0]}};
+function setTune(n){if(MUS.tune!==n){MUS.tune=n;MUS.step=0;MUS.next=0;}}
+function playNote(m,when,dur,type,vol){
+  const a=AC;if(!a)return;try{
+  const o=a.createOscillator(),g=a.createGain();
+  o.type=type;o.frequency.value=NOTE(m);
+  g.gain.setValueAtTime(vol,when);
+  g.gain.exponentialRampToValueAtTime(0.0001,when+dur);
+  o.connect(g);g.connect(a.destination);o.start(when);o.stop(when+dur);}catch(e){}}
+function musTick(){
+  if(!MUS.on||!MUS.tune||!AC||AC.state!=='running')return;
+  const tn=TUNES[MUS.tune],spb=60/tn.bpm/2;
+  if(MUS.next<AC.currentTime-0.5)MUS.next=AC.currentTime+0.05;
+  while(MUS.next<AC.currentTime+0.15){
+    const i=MUS.step%32;
+    if(tn.bass[i])playNote(tn.bass[i],MUS.next,spb*1.7,'triangle',0.045*tn.vol);
+    if(tn.mel[i])playNote(tn.mel[i],MUS.next,spb*0.9,'square',0.02*tn.vol);
+    if(i%4===2)playNote(99,MUS.next,0.02,'square',0.006);
+    MUS.step++;MUS.next+=spb;}}
+
 // ================= helpers =================
 const R=(a,b)=>a+Math.random()*(b-a);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -238,7 +271,9 @@ const DAYS=[
       ['ja',"Aditi NEVER misses it!! Sofa. Blanket. Yelling at the TV."],
       ['c',"The dragons. The drama. The family disputes. Cinema."],
       ['mi',"...You only like the dragons because they nap 20 hours a day."],
-      ['c',"We are KINDRED SPIRITS, the dragons and I."]],
+      ['c',"We are KINDRED SPIRITS, the dragons and I."],
+      ['c',"Oh, and is that an ERAS TOUR poster? Excellent taste in this house."],
+      ['ja',"Aditi's. Her grooming playlist is ALL Taylor. Non-negotiable."]],
     bye:"Purrfect. If a dragon egg ever shows up here, call me FIRST."},
    {name:'LADOO',pal:{fur:'#e6b54a',shade:'#c4923a',wet:'#b5883a',har:'#4a7fd4',seed:11},
     hi:"I rolled in something at the park. Zero regrets.",
@@ -254,7 +289,7 @@ const DAYS=[
     bye:"That was lovely! 10/10 would fetch again."},
    {name:'GULAB',pal:{fur:'#d9a3a0',shade:'#b98380',wet:'#a37370',har:'#3cb0c9',seed:29},
     hi:"I have a park date at 5. Make me GORGEOUS.",
-    bye:"Park date, here I come!"}],
+    bye:"Park date, here I come! Today I write my LOVE STORY."}],
   [{name:'PISTA',pal:{fur:'#b7c48b',shade:'#97a56e',wet:'#849160',har:'#8a5ad0',seed:33},
     hi:"The pond was RIGHT there. I had to jump in.",
     bye:"So fresh I might avoid the pond. Might."},
@@ -363,6 +398,18 @@ function room(mode){
   ctx.fillStyle='#8d5f37';
   for(let yy=FLOOR;yy<H;yy+=18)ctx.fillRect(0,yy,W,2);
   for(let i=0;i<12;i++)ctx.fillRect((i*111)%W,FLOOR+(i%4)*18+8,26,2);
+  // ERAS FLUFF TOUR poster (aditi's other religion)
+  box(14,56,56,68,'#3a2440','#54331f');
+  ctx.fillStyle='#f2d478';ctx.fillRect(36,64,12,8);   // blonde hair
+  ctx.fillStyle='#e8b48c';ctx.fillRect(38,68,8,6);    // face
+  ctx.fillStyle='#d13a78';ctx.fillRect(36,74,12,15);  // sparkle dress
+  ctx.fillStyle='#fff';
+  ctx.fillRect(38,77,2,2);ctx.fillRect(43,81,2,2);ctx.fillRect(40,85,2,2);
+  ctx.fillStyle='#8a8a96';ctx.fillRect(31,72,4,2);ctx.fillRect(30,74,2,10); // mic
+  if(MUS.on&&Math.random()<0.02)sparkle(42,72,1);
+  text('TAY TAY',42,96,'#f2d478',4,'center');
+  text('THE FLUFF',42,104,'#d8cdb8',3,'center');
+  text('ERAS TOUR',42,111,'#d8cdb8',3,'center');
   // window (sky shifts to sunset as the day goes on)
   const dayk=clamp(game.groomed/9,0,1);
   const sky=['#9fd0ea','#a9cede','#eec788','#f2a468'][Math.min(3,Math.floor(dayk*4))];
@@ -564,7 +611,7 @@ function scene(bg,actors,steps,next){
 
 // ================= title =================
 function title(){
-  resetGame();
+  resetGame();setTune('salon');
   S={t:'title',
     down(){sGood();introScene();},
     draw(){
@@ -598,7 +645,8 @@ function introScene(){
     {s:[ad,"Good morning babiesss! Plant care first."]},
     {m:[ad,140,306]},
     {x:()=>{sWater();sparkle(150,290,8);}},
-    {w:0.6},
+    {s:[ad,"*hums the entire folklore album*"]},
+    {w:0.4},
     {s:[ad,"Perfect. Now! Off to lend Mr. Billionaire a bit more money."]},
     {s:[ja,"..."]},
     {s:[ad,"Be good! Tonight is HOUSE OF DRAGONS night. Mumma is home by 6 SHARP."]},
@@ -622,6 +670,7 @@ function introScene(){
     {s:[ja,"Deal. Let's build."]},
   ],montage);}
 function montage(){
+  setTune('panic'); // building montage energy
   const order=['golf','tub','table','board','sign'];
   let k=0,tm=0;
   S={t:'montage',
@@ -647,6 +696,7 @@ function montage(){
 
 // ================= day flow =================
 function dayCard(n){
+  setTune('salon');
   game.day=n;game.queue=DAYS[n].slice();game.cIdx=-1;game.claudithDone=false;
   const names=['GRAND OPENING','WORD GETS AROUND','THE BIG ONE'];
   let tm=0;
@@ -718,6 +768,7 @@ function maybeClaudith(stage,cpos,c,half,force){
   game.claudithDone=true;savedS=S;sAlarm();
   hidePhase(cpos,c,half);}
 function hidePhase(cpos,c,half){
+  setTune('sneak');
   let tl=3.4,hidden=false,dash=0;
   S={t:'hide',cpos,
     update(dt){
@@ -783,7 +834,7 @@ function claudithScene(hidden,c,half){
     const d=hidden?8:30;game.sus=clamp(game.sus+d,0,100);
     addFloat(320,140,hidden?'PHEW! SUSPICION +8':'YIKES! SUSPICION +30',
       hidden?'#8ade7c':'#e06a6a');}});
-  scene(bgExtra,[cl,ja,mi],steps,()=>{S=savedS;});}
+  scene(bgExtra,[cl,ja,mi],steps,()=>{setTune('salon');S=savedS;});}
 
 // ================= minigame 1: wash =================
 function startWash(c){
@@ -829,8 +880,12 @@ function finishWash(){
 
 // ================= minigame 2: dry =================
 function startDry(c,washScore){
+  // fresh out of the tub: shake it off
+  for(let i=0;i<24;i++)parts.push({x:330+R(-44,44),y:R(210,300),
+    vx:R(-90,90),vy:R(-70,20),life:R(0.3,0.7),r:2,col:'#a8d4f0'});
+  addFloat(330,150,'SHAKE IT OFF, SHAKE IT OFF!','#8ade7c');
   S={t:'dry',c,washScore,hits:0,miss:0,ph:R(0,6),zc:0.5,
-    zw:game.up.dryer?0.3:0.2,fl:0,shake:0,st:0,
+    zw:game.up.dryer?0.3:0.2,fl:0,shake:1.2,st:0,
     update(dt){
       S.st+=dt;
       S.ph+=dt*(2.6+S.hits*0.9);
@@ -975,7 +1030,7 @@ function shopState(nextDay){
       box(doneR.x,doneR.y,doneR.w,doneR.h,'#3e8e7e','#356e62');
       text('OPEN SHOP >',320,doneR.y+11,'#fff',7,'center');}};}
 function panicState(){
-  sAlarm();
+  sAlarm();setTune('panic');
   const items=[{k:'tub',x:236,y:300,label:'TUB'},
                {k:'table',x:454,y:290,label:'TABLE'},
                {k:'sign',x:348,y:40,label:'SIGN'}];
@@ -1005,7 +1060,7 @@ function panicState(){
       box(240,132,160,10,'#38294d','#4a3a63');
       ctx.fillStyle='#e06a6a';ctx.fillRect(243,135,154*clamp(tl/6,0,1),4);}};}
 function endingScene(){
-  game.showJar=true;
+  game.showJar=true;setTune('salon');
   const ja=mkA('jamun',250,306,1.35,1),
         mi=mkA('misri',320,306,1.35,1),
         ad=mkA('aditi',615,306,1.35,-1),
@@ -1058,7 +1113,8 @@ function endScreen(){
       text('claudith suspects: '+(game.sus>=50?'EVERYTHING. woof.':'NOTHING (probably)'),
         320,276,'#c8b7e0',6,'center');
       text('lending money to billionaires: cancelled',320,292,'#7a8db0',6,'center');
-      text('made with love for Aditi, Jamun & Misri',320,316,'#ff9fc6',6,'center');
+      text("now playing: aditi's grooming playlist (all taylor)",320,304,'#c9a0d8',5,'center');
+      text('made with love for Aditi, Jamun & Misri',320,318,'#ff9fc6',6,'center');
       if(Math.sin(T*4)>-0.2)text('- CLICK TO PLAY AGAIN -',320,338,'#ffe66d',7,'center');}};}
 
 // ================= input =================
@@ -1070,6 +1126,10 @@ function toXY(e){
 cv.addEventListener('pointerdown',e=>{
   e.preventDefault();const a=ac();if(a&&a.state==='suspended')a.resume();
   pdown=true;[mx,my]=toXY(e);
+  if(mx>W-30&&my>H-22){ // mute toggle
+    MUS.on=!MUS.on;
+    try{localStorage.setItem('ww_mute',MUS.on?'0':'1')}catch(err){}
+    return;}
   if(S&&S.down)S.down(mx,my);});
 cv.addEventListener('pointermove',e=>{[mx,my]=toXY(e);
   if(S&&S.move)S.move(mx,my);});
@@ -1085,6 +1145,14 @@ function loop(t){
   ctx.fillStyle='#141020';ctx.fillRect(0,0,W,H);
   if(S)S.draw();
   drawParts();
+  musTick();
+  // mute button (bottom-right)
+  ctx.fillStyle='rgba(20,16,32,0.6)';ctx.fillRect(W-28,H-20,26,18);
+  ctx.fillStyle=MUS.on?'#9fe0d0':'#8a8a96';
+  ctx.fillRect(W-24,H-13,4,5);
+  ctx.fillRect(W-20,H-15,3,9);
+  if(MUS.on){ctx.fillRect(W-15,H-14,2,7);ctx.fillRect(W-11,H-16,2,11);}
+  else{ctx.fillStyle='#e06a6a';ctx.fillRect(W-16,H-16,2,11);}
   if(window.innerWidth<window.innerHeight){ // portrait phone hint
     ctx.fillStyle='rgba(20,16,32,0.85)';ctx.fillRect(0,H-20,W,20);
     text('tip: rotate your phone sideways for a bigger salon!',W/2,H-14,'#ffe66d',6,'center');}
