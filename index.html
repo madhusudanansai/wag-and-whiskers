@@ -1085,6 +1085,9 @@ function loop(t){
   ctx.fillStyle='#141020';ctx.fillRect(0,0,W,H);
   if(S)S.draw();
   drawParts();
+  if(window.innerWidth<window.innerHeight){ // portrait phone hint
+    ctx.fillStyle='rgba(20,16,32,0.85)';ctx.fillRect(0,H-20,W,20);
+    text('tip: rotate your phone sideways for a bigger salon!',W/2,H-14,'#ffe66d',6,'center');}
   requestAnimationFrame(loop);}
 title();
 requestAnimationFrame(loop);
