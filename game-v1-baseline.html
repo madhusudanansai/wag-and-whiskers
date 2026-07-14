@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Jamun &amp; Misri's Groom Service</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;padding:0;background:#141020;height:100%;overflow:hidden;touch-action:none}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;
+    image-rendering:pixelated;image-rendering:crisp-edges;cursor:pointer}
+</style>
+</head>
+<body>
+<canvas id="g" width="480" height="270"></canvas>
+<script>
+"use strict";
+const W=480,H=270;
+const cv=document.getElementById('g'),ctx=cv.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+
+// ---------------- globals ----------------
+let S=null;                       // current state
+let game={coins:0,day:0,groomed:0,queue:[]};
+let parts=[],floats=[];
+let pdown=false,mx=-99,my=-99,T=0;
+const F8="8px 'Press Start 2P',monospace",F7="7px 'Press Start 2P',monospace";
+
+// ---------------- audio ----------------
+let AC=null;
+function ac(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}return AC}
+function beep(f,d,type,v){d=d||0.07;type=type||'square';v=v||0.035;
+  const a=ac();if(!a)return;try{
+  const o=a.createOscillator(),g=a.createGain();
+  o.type=type;o.frequency.value=f;
+  g.gain.setValueAtTime(v,a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+d);
+  o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+d);}catch(e){}}
+function sTalk(){beep(420+Math.random()*120,0.04,'square',0.02)}
+function sScrub(){beep(900+Math.random()*300,0.03,'sine',0.02)}
+function sPop(){beep(1200,0.06,'sine',0.04)}
+function sSnip(){beep(1500,0.03,'square',0.03);setTimeout(()=>beep(1100,0.03,'square',0.03),40)}
+function sGood(){beep(660,0.07);setTimeout(()=>beep(990,0.1),70)}
+function sBad(){beep(150,0.15,'sawtooth',0.04)}
+function sCoin(){beep(880,0.06);setTimeout(()=>beep(1320,0.12),70)}
+function sWind(){beep(300,0.25,'sawtooth',0.02)}
+
+// ---------------- helpers ----------------
+const R=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function text(s,x,y,col,size,align){
+  ctx.font=(size||8)+"px 'Press Start 2P',monospace";
+  ctx.textAlign=align||'left';ctx.textBaseline='top';
+  ctx.fillStyle=col||'#fff';ctx.fillText(s,x,y);}
+function wrap(s,n){
+  const out=[];let line='';
+  s.split(' ').forEach(w=>{
+    if((line+' '+w).trim().length>n){out.push(line.trim());line=w;}
+    else line+=' '+w;});
+  if(line.trim())out.push(line.trim());return out;}
+function box(x,y,w,h,fill,stroke){
+  ctx.fillStyle=fill;ctx.fillRect(x+2,y,w-4,h);ctx.fillRect(x,y+2,w,h-4);
+  if(stroke){ctx.fillStyle=stroke;
+    ctx.fillRect(x+2,y,w-4,2);ctx.fillRect(x+2,y+h-2,w-4,2);
+    ctx.fillRect(x,y+2,2,h-4);ctx.fillRect(x+w-2,y+2,2,h-4);}}
+function addFloat(x,y,txt,col){floats.push({x,y,txt,col:col||'#ffe66d',life:1.2})}
+function puff(x,y,n,col,spd){
+  for(let i=0;i<n;i++)parts.push({x,y,vx:R(-1,1)*(spd||30),vy:R(-1.4,0.2)*(spd||30),
+    life:R(0.4,0.9),r:R(2,4),col});}
+function sparkle(x,y,n){
+  for(let i=0;i<n;i++)parts.push({x:x+R(-20,20),y:y+R(-30,10),vx:0,vy:-12,
+    life:R(0.5,1),r:R(1,3),col:'#fff7a8',star:1});}
+function updateParts(dt){
+  parts=parts.filter(p=>{p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;return p.life>0});
+  floats=floats.filter(f=>{f.life-=dt;f.y-=18*dt;return f.life>0});}
+function drawParts(){
+  parts.forEach(p=>{ctx.globalAlpha=clamp(p.life*2,0,1);ctx.fillStyle=p.col;
+    const r=Math.max(1,Math.round(p.r));
+    if(p.star){ctx.fillRect(p.x-r,p.y,r*2+1,1);ctx.fillRect(p.x,p.y-r,1,r*2+1);}
+    else ctx.fillRect(p.x-r/2,p.y-r/2,r,r);});
+  ctx.globalAlpha=1;
+  floats.forEach(f=>{ctx.globalAlpha=clamp(f.life,0,1);
+    text(f.txt,f.x,f.y,f.col,8,'center');});
+  ctx.globalAlpha=1;}
+
+// ---------------- fluffy pixel blob ----------------
+function fluff(cx,cy,rx,ry,seed,smooth){
+  for(let yy=-ry;yy<=ry;yy+=1.5){
+    const t=yy/ry;let hw=rx*Math.sqrt(Math.max(0,1-t*t));
+    if(!smooth)hw+=Math.sin(yy*1.4+(seed||0)*7)*1.3+Math.sin(yy*3.2+(seed||0)*3)*0.7;
+    if(hw<1)continue;
+    ctx.fillRect(Math.round(cx-hw),Math.round(cy+yy),Math.round(hw*2),2);}}
+
+// ---------------- dog sprite ----------------
+// feet centered at (x,y). f=1 faces right, -1 left.
+function drawDog(x,y,sc,f,pal,o){
+  o=o||{};
+  ctx.save();ctx.translate(x,y);ctx.scale(sc*(f<0?-1:1),sc);
+  const bob=o.bob?Math.sin(T*4+(pal.seed||0)*2)*1.2:0;
+  const fl=o.fluff||1, sd=pal.seed||1, sm=o.pug?1:0;
+  // tail
+  ctx.fillStyle=pal.fur;
+  if(o.pug){fluff(-13,-24+bob,3,3,sd+5,1);}
+  else fluff(-14,-21+bob,4*fl,4.5*fl,sd+5);
+  // legs
+  ctx.fillStyle=pal.shade;
+  [-10,-4,4,9].forEach(lx=>ctx.fillRect(lx,-9+bob,3,9-bob));
+  // body
+  ctx.fillStyle=pal.fur;fluff(0,-16+bob,13*fl,9.5*fl,sd,sm);
+  // harness
+  ctx.fillStyle=pal.har;
+  ctx.fillRect(2,-24+bob,8,11);ctx.fillRect(-3,-21+bob,14,4);
+  ctx.fillStyle='#3d3d42';ctx.fillRect(5,-19+bob,3,2);
+  // ear (far side hidden in profile)
+  ctx.fillStyle=pal.shade;fluff(3,-26+bob,4,6.5*fl,sd+2,sm);
+  // head
+  ctx.fillStyle=pal.fur;fluff(9,-29+bob,8.5*fl,8*fl,sd+1,sm);
+  // near ear
+  ctx.fillStyle=pal.shade;fluff(4,-27+bob,3.5,6*fl,sd+3,sm);
+  // muzzle
+  if(!o.pug){ctx.fillStyle=pal.fur;fluff(15,-26+bob,4,3.5,sd+4,sm);}
+  // nose
+  ctx.fillStyle='#181414';
+  ctx.fillRect(o.pug?14:17,-28+bob,3,2);
+  // eye
+  ctx.fillStyle='#181414';ctx.fillRect(11,-32+bob,2,2);
+  ctx.fillStyle='#fff';ctx.fillRect(12,-32+bob,1,1);
+  // tongue
+  if(o.tongue){ctx.fillStyle='#f0788c';ctx.fillRect(16,-24+bob,3,4);}
+  // monocle
+  if(o.monocle){ctx.strokeStyle='#e8c34a';ctx.lineWidth=1;
+    ctx.strokeRect(9.5,-33.5+bob,5,5);
+    ctx.beginPath();ctx.moveTo(14,-29+bob);ctx.lineTo(16,-24+bob);ctx.stroke();}
+  // top hat
+  if(o.hat){ctx.fillStyle='#1c1c22';
+    ctx.fillRect(3,-38+bob,13,2);ctx.fillRect(5,-45+bob,9,7);
+    ctx.fillStyle='#c33';ctx.fillRect(5,-40+bob,9,2);}
+  // bow
+  if(o.bow){ctx.fillStyle=o.bowCol||'#ff5d8f';
+    ctx.fillRect(6,-39+bob,4,4);ctx.fillRect(11,-39+bob,4,4);
+    ctx.fillStyle='#fff';ctx.fillRect(10,-38+bob,1,2);}
+  ctx.restore();}
+
+// ---------------- Aditi sprite ----------------
+function drawAditi(x,y,sc){
+  ctx.save();ctx.translate(x,y);ctx.scale(sc,sc);
+  ctx.fillStyle='#2b2027'; // hair back
+  ctx.fillRect(-8,-42,16,8);ctx.fillRect(-9,-38,3,18);ctx.fillRect(6,-38,3,18);
+  ctx.fillStyle='#d9a06b'; // face
+  ctx.fillRect(-5,-38,10,9);
+  ctx.fillStyle='#241a1a';ctx.fillRect(-3,-35,2,2);ctx.fillRect(2,-35,2,2);
+  ctx.fillStyle='#b8574f';ctx.fillRect(-1,-31,3,1);
+  ctx.fillStyle='#3e8e7e'; // kurti
+  ctx.fillRect(-8,-29,16,15);
+  ctx.fillStyle='#d9a06b';ctx.fillRect(-10,-27,2,9);ctx.fillRect(8,-27,2,9);
+  ctx.fillStyle='#31313d'; // legs
+  ctx.fillRect(-5,-14,4,14);ctx.fillRect(2,-14,4,14);
+  ctx.fillStyle='#7a4a2f';ctx.fillRect(-6,-2,6,2);ctx.fillRect(1,-2,6,2);
+  ctx.restore();}
+
+// ---------------- palettes / cast ----------------
+const JAMUN={fur:'#3a3634',shade:'#242120',har:'#c8362e',seed:3};
+const MISRI={fur:'#f3ecdd',shade:'#d8ccb2',har:'#d13a78',seed:8};
+const CAST={
+  jamun:{n:'JAMUN',col:'#ff8a7a',pal:JAMUN},
+  misri:{n:'MISRI',col:'#ff9fc6',pal:MISRI},
+  aditi:{n:'ADITI',col:'#7fd4c1',aditi:1},
+  narr:{n:'',col:'#aaa'}};
+const DAYS=[
+  [{name:'LADOO',pal:{fur:'#e6b54a',shade:'#c4923a',har:'#4a7fd4',seed:11},
+    hi:"I rolled in something at the park. Zero regrets.",
+    bye:"WOOF! I feel like a brand new dog!"},
+   {name:'BARFI',pal:{fur:'#cdd2d6',shade:'#a9b0b6',har:'#7a4ad4',seed:14},
+    hi:"Make me shinier than the fridge. It's my rival.",
+    bye:"Shinier than the fridge. As requested."}],
+  [{name:'JALEBI',pal:{fur:'#e08a3c',shade:'#bd6c28',har:'#2f9e68',seed:21},
+    hi:"I'm sticky. Please don't ask why. I'm sticky.",
+    bye:"De-stickified! You two are wizards."},
+   {name:'KAJU',pal:{fur:'#e3d2ac',shade:'#c2b18d',har:'#d44a4a',seed:25},
+    hi:"First salon visit ever. Please be gentle.",
+    bye:"That was lovely! 10/10 would fetch again."},
+   {name:'GULAB',pal:{fur:'#d9a3a0',shade:'#b98380',har:'#3cb0c9',seed:29},
+    hi:"I have a park date at 5. Make me GORGEOUS.",
+    bye:"Park date, here I come!"}],
+  [{name:'PISTA',pal:{fur:'#b7c48b',shade:'#97a56e',har:'#8a5ad0',seed:33},
+    hi:"The pond was RIGHT there. I had to jump in.",
+    bye:"So fresh I might avoid the pond. Might."},
+   {name:'RASGULLA',pal:{fur:'#f4efe4',shade:'#d5cdb9',har:'#e0913c',seed:37},
+    hi:"I want to be UNREASONABLY fluffy. Do it.",
+    bye:"UNREASONABLY FLUFFY. PERFECT."},
+   {name:'MONEYBAGS',pal:{fur:'#cba168',shade:'#a67f4c',har:'#22222a',seed:41},
+    opts:{pug:1,hat:1,monocle:1},vip:1,
+    hi:"My owner is a billionaire. He borrowed money from a lady named Aditi. Bill him whatever you like.",
+    bye:"Splendid! Invoice my owner. He's good for it... eventually."}]];
+
+// ---------------- backgrounds ----------------
+function drawHome(withAditi,dogsOnSofa){
+  ctx.fillStyle='#b98d5f';ctx.fillRect(0,0,W,150);            // wall
+  ctx.fillStyle='#a3794e';ctx.fillRect(0,146,W,4);
+  ctx.fillStyle='#8a5a33';ctx.fillRect(0,150,W,H-150);        // floor
+  ctx.fillStyle='#7c4f2b';for(let i=0;i<W;i+=48)ctx.fillRect(i,150,2,H-150);
+  // window
+  box(40,34,84,64,'#8fc7e8','#5c4326');
+  ctx.fillStyle='#5c4326';ctx.fillRect(78,34,4,64);ctx.fillRect(40,62,84,4);
+  ctx.fillStyle='#fdf6d8';ctx.fillRect(96,42,14,10);          // sun
+  // photo frame of the dogs
+  box(160,44,44,34,'#f3ecdd','#6e4b26');
+  drawDog(174,72,0.45,1,JAMUN,{});drawDog(192,72,0.45,1,MISRI,{});
+  // shelf + empty treat jar
+  ctx.fillStyle='#6e4b26';ctx.fillRect(228,74,64,6);
+  box(244,52,22,22,'#d8ecef','#9db6ba');
+  text('T',252,58,'#9db6ba',7);
+  // sofa
+  ctx.fillStyle='#5f7d9c';ctx.fillRect(300,124,110,44);
+  ctx.fillStyle='#54708c';ctx.fillRect(292,108,16,60);ctx.fillRect(402,108,16,60);
+  ctx.fillStyle='#6d8cab';ctx.fillRect(306,116,46,16);ctx.fillRect(356,116,46,16);
+  // door
+  box(430,54,42,112,'#7a4a2f','#54331f');
+  ctx.fillStyle='#e8c34a';ctx.fillRect(436,112,4,4);
+  // rug
+  ctx.fillStyle='#a34d4d';ctx.fillRect(150,196,150,34);
+  ctx.fillStyle='#c46a6a';ctx.fillRect(158,202,134,22);
+  if(dogsOnSofa){
+    drawDog(330,132,0.9,1,JAMUN,{bob:1});
+    drawDog(378,132,0.9,-1,MISRI,{bob:1});
+  }else{
+    drawDog(200,226,1.1,1,JAMUN,{bob:1});
+    drawDog(255,226,1.1,-1,MISRI,{bob:1});
+  }
+  if(withAditi)drawAditi(415,222,1.15);}
+
+function drawSalonBase(){
+  ctx.fillStyle='#7ec4b6';ctx.fillRect(0,0,W,140);            // wall
+  ctx.fillStyle='#6bb0a2';ctx.fillRect(0,0,W,10);
+  for(let y=140;y<H;y+=16)for(let x=0;x<W;x+=16){              // checker floor
+    ctx.fillStyle=((x+y)/16)%2?'#e8ddc8':'#d4c6ab';ctx.fillRect(x,y,16,16);}
+  ctx.fillStyle='#5c9a8d';ctx.fillRect(0,136,W,4);
+  // sign
+  box(128,16,224,30,'#f5e9c8','#8a6a3a');
+  text('GROOM SERVICE',240,26,'#a3542e',8,'center');
+  text("by Jamun & Misri",240,37,'#8a6a3a',5,'center');
+  // shelf of shampoos
+  ctx.fillStyle='#8a6a3a';ctx.fillRect(24,88,88,5);
+  ['#e06a8a','#6ab0e0','#8ade7c','#e8c34a','#b07ae0'].forEach((c,i)=>{
+    ctx.fillStyle=c;ctx.fillRect(30+i*16,72,10,16);
+    ctx.fillStyle='#fff';ctx.fillRect(33+i*16,68,4,4);});}
+
+function drawSalon(){
+  drawSalonBase();
+  // wash tub
+  box(150,196,84,26,'#5c9fd4','#3d6f99');
+  ctx.fillStyle='#a8d4f0';ctx.fillRect(156,200,72,6);
+  // styling table
+  box(316,186,76,10,'#e08aa8','#b05f7e');
+  ctx.fillStyle='#b05f7e';ctx.fillRect(324,196,6,26);ctx.fillRect(378,196,6,26);
+  text('WAIT',60,166,'#5c9a8d',6,'center');
+  ctx.fillStyle='#c9977a';ctx.fillRect(30,176,64,6);
+  // the managers
+  drawDog(196,196,1.1,-1,JAMUN,{bob:1,tongue:1});
+  drawDog(354,186,1.05,1,MISRI,{bob:1});}
+
+// ---------------- HUD ----------------
+function hud(){
+  ctx.fillStyle='rgba(20,16,32,0.85)';ctx.fillRect(0,0,W,15);
+  text('DAY '+(game.day+1)+'/3',6,4,'#9fe0d0',7);
+  // coin
+  ctx.fillStyle='#e8c34a';ctx.fillRect(W-70,3,9,9);
+  ctx.fillStyle='#f7e08a';ctx.fillRect(W-68,5,5,5);
+  text(''+game.coins,W-56,4,'#ffe66d',7);
+  if(game.queue.length)text('IN QUEUE: '+game.queue.length,180,4,'#cbb',7);}
+
+// ---------------- cutscene ----------------
+function cut(lines,next,bg){
+  S={t:'cut',i:0,
+    down(){
+      if(S.i<lines.length-1){S.i++;sTalk();}
+      else next();},
+    draw(){
+      bg(S.i);
+      const L=lines[S.i],who=CAST[L[0]];
+      // dialogue box
+      box(6,198,W-12,64,'#241c33','#4a3a63');
+      if(L[0]!=='narr'){
+        box(12,204,46,52,'#38294d','#4a3a63');
+        if(who.aditi)drawAditi(35,252,0.95);
+        else drawDog(33,250,0.95,1,who.pal,{bob:1,tongue:1});
+        text(who.n,35,244,who.col,5,'center');
+        wrap(L[1],48).slice(0,4).forEach((ln,j)=>text(ln,66,208+j*11,'#f4eee2',7));
+      }else{
+        wrap(L[1],54).slice(0,4).forEach((ln,j)=>text(ln,240,212+j*12,'#cfc4b0',7,'center'));
+      }
+      if(Math.sin(T*5)>0)text('CLICK',W-46,252,'#8f7fb0',6);}};}
+
+// ---------------- title ----------------
+function title(){
+  game={coins:0,day:0,groomed:0,queue:[]};
+  S={t:'title',
+    down(){sGood();cut(INTRO,()=>startDay(0),
+      i=>drawHome(i<=3,false));},
+    draw(){
+      ctx.fillStyle='#1c2b4a';ctx.fillRect(0,0,W,H);
+      for(let i=0;i<30;i++){ctx.fillStyle='rgba(255,255,255,0.5)';
+        ctx.fillRect((i*97)%W,(i*53)%120,1,1);}
+      ctx.fillStyle='#2e4468';ctx.fillRect(0,170,W,H-170);
+      box(90,34,300,54,'#f5e9c8','#8a6a3a');
+      text("JAMUN & MISRI'S",240,44,'#a3542e',10,'center');
+      text('GROOM SERVICE',240,64,'#d1603a',12,'center');
+      drawDog(180,208,1.7,1,JAMUN,{bob:1,tongue:1});
+      drawDog(300,208,1.7,-1,MISRI,{bob:1});
+      // heart
+      ctx.fillStyle='#ff5d8f';
+      ctx.fillRect(236,180,4,4);ctx.fillRect(242,180,4,4);
+      ctx.fillRect(236,184,10,4);ctx.fillRect(238,188,6,3);ctx.fillRect(240,191,2,2);
+      text('a tiny game for Aditi',240,120,'#9fb4d8',7,'center');
+      if(Math.sin(T*4)>-0.2)text('- CLICK TO START -',240,240,'#ffe66d',8,'center');}};}
+
+// ---------------- story text ----------------
+const INTRO=[
+ ['narr',"MONDAY, 9 AM. ADITI'S HOUSE."],
+ ['aditi',"Bye babies! Mumma's off to lend Mr. Billionaire some money again!"],
+ ['aditi',"No, I won't ask for it back. That would be RUDE."],
+ ['narr',"* door closes *"],
+ ['jamun',"...She did it again, Misri."],
+ ['misri',"Jamun. The treat jar is EMPTY. This family needs an income."],
+ ['jamun',"Then it's decided. Until Aditi comes home... we run a business."],
+ ['misri',"A grooming salon. Run by dogs, FOR dogs. It's genius."],
+ ['jamun',"Best groom service in the colony. Let's GO!"]];
+const DAYINTRO=[
+ [['narr',"DAY 1 - GRAND OPENING"],
+  ['misri',"Jamun, you're on wash and blow-dry duty. I handle the styling. Obviously."],
+  ['jamun',"Why do I always get the wet job..."],
+  ['misri',"Now smile! Our first customer is here!"]],
+ [['narr',"DAY 2 - WORD GETS AROUND"],
+  ['jamun',"THREE bookings today, Misri! We're famous!"],
+  ['misri',"Stay fluffy. Stay focused. And Jamun... please stop drinking the shampoo."]],
+ [['narr',"DAY 3 - THE BIG ONE"],
+  ['misri',"JAMUN. Guess whose pug just booked an appointment."],
+  ['jamun',"No way."],
+  ['misri',"YES. Mr. Billionaire's pug. The SAME billionaire who owes Aditi money."],
+  ['jamun',"Oh, we are charging him EVERYTHING. Debt recovery: salon edition."]]];
+
+// ---------------- day flow ----------------
+function startDay(n){
+  game.day=n;game.queue=DAYS[n].slice();
+  cut(DAYINTRO[n],dayState,()=>drawSalon());}
+
+function dayState(){
+  if(game.queue.length===0)return endDay();
+  const c=game.queue[0];
+  S={t:'day',
+    down(){game.queue.shift();sPop();greet(c);},
+    draw(){
+      drawSalon();
+      game.queue.forEach((q,i)=>{
+        drawDog(62-i*26,208,i?0.8:1.25,1,q.pal,Object.assign({bob:1},q.opts||{}));
+        if(!i)text(q.name,62,224,'#443626',6,'center');});
+      const c0=game.queue[0];
+      const ay=160+Math.sin(T*6)*3;
+      ctx.fillStyle='#ffe66d';
+      ctx.fillRect(60,ay,4,8);ctx.fillRect(56,ay+8,12,3);ctx.fillRect(59,ay+11,6,3);
+      hud();
+      text('A CUSTOMER IS WAITING!',240,120,'#443626',8,'center');
+      if(Math.sin(T*4)>-0.2)text('CLICK TO GREET '+c0.name,240,134,'#a3542e',7,'center');}};}
+
+function greet(c){
+  S={t:'greet',c,
+    down(){startWash(c);},
+    draw(){
+      drawSalonBase();
+      drawDog(196,232,1.1,1,JAMUN,{bob:1});
+      drawDog(300,232,1.1,-1,MISRI,{bob:1});
+      drawDog(240,190,1.9,1,c.pal,Object.assign({bob:1,tongue:1},c.opts||{}));
+      hud();
+      box(80,60,320,52,'#fffdf2','#c9b98a');
+      text(c.name+':',96,70,'#a3542e',7);
+      wrap('"'+c.hi+'"',44).forEach((ln,j)=>text(ln,96,82+j*10,'#443626',6));
+      if(Math.sin(T*4)>-0.2)text('CLICK TO START GROOMING',240,132,'#a3542e',7,'center');}};}
+
+// ---------------- minigame 1: wash ----------------
+function startWash(c){
+  const OFF=[[-34,-46],[-10,-66],[14,-84],[30,-56],[-4,-40],[22,-96],[-26,-72],[36,-80]];
+  const n=5+game.day;
+  const spots=OFF.slice(0,n).map(o=>({x:240+o[0]+R(-4,4),y:214+o[1]+R(-3,3),hp:26,max:26}));
+  S={t:'wash',c,spots,timer:20,total:n,gt:0,
+    update(dt){
+      S.gt+=dt;S.timer-=dt;
+      if(pdown)S.spots.forEach(sp=>{
+        if(sp.hp>0&&Math.hypot(mx-sp.x,my-sp.y)<16){
+          sp.hp-=70*dt;
+          if(Math.random()<0.35){parts.push({x:sp.x+R(-6,6),y:sp.y+R(-6,6),
+            vx:R(-10,10),vy:-30,life:R(0.4,0.8),r:R(2,4),col:'#dff1fa'});sScrub();}
+          if(sp.hp<=0){sPop();puff(sp.x,sp.y,8,'#eaf6fc',40);addFloat(sp.x,sp.y-10,'CLEAN!','#8ade7c');}}});
+      if(S.timer<=0||S.spots.every(sp=>sp.hp<=0))finishWash();},
+    draw(){
+      drawSalonBase();
+      box(186,208,108,28,'#5c9fd4','#3d6f99');
+      ctx.fillStyle='#a8d4f0';ctx.fillRect(192,212,96,7);
+      drawDog(240,214,2.3,1,c.pal,Object.assign({bob:1},c.opts||{}));
+      // mud
+      S.spots.forEach(sp=>{if(sp.hp>0){
+        ctx.globalAlpha=clamp(sp.hp/sp.max,0.25,1);
+        ctx.fillStyle='#6e4b26';
+        ctx.fillRect(sp.x-6,sp.y-4,12,8);ctx.fillRect(sp.x-3,sp.y-7,7,4);
+        ctx.fillRect(sp.x-8,sp.y-1,4,4);
+        ctx.globalAlpha=1;}});
+      drawDog(120,236,1.4,1,JAMUN,{bob:1,tongue:1});
+      text('SCRUB!',120,180,'#3d6f99',6,'center');
+      hud();
+      text('STEP 1: SCRUB THE MUD OFF '+c.name+'!',240,22,'#443626',7,'center');
+      text('(hold & rub the mud)',240,33,'#7a6a50',6,'center');
+      // timer bar
+      box(140,44,200,10,'#38294d','#4a3a63');
+      ctx.fillStyle=S.timer>6?'#8ade7c':'#e06a6a';
+      ctx.fillRect(143,47,Math.max(0,194*S.timer/20),4);
+      // soap cursor
+      if(mx>0){ctx.fillStyle='#fdfdfd';ctx.fillRect(mx-8,my-5,16,10);
+        ctx.fillStyle='#cfe6ef';ctx.fillRect(mx-8,my-5,16,3);}}};}
+function finishWash(){
+  const cleaned=S.spots.filter(sp=>sp.hp<=0).length;
+  const score=cleaned/S.total*6+(cleaned===S.total?clamp(S.timer/20,0,1)*4:0);
+  sGood();startDry(S.c,score);}
+
+// ---------------- minigame 2: blow-dry ----------------
+function startDry(c,washScore){
+  S={t:'dry',c,washScore,hits:0,miss:0,ph:R(0,6),zc:0.5,zw:0.2,fl:0,shake:0,
+    update(dt){
+      S.ph+=dt*(2.6+S.hits*0.9);
+      S.fl=Math.max(0,S.fl-dt*1.4);S.shake=Math.max(0,S.shake-dt*3);},
+    down(){
+      const pos=0.5+0.48*Math.sin(S.ph);
+      if(Math.abs(pos-S.zc)<S.zw/2){
+        S.hits++;sWind();sGood();S.fl=0.5;
+        for(let i=0;i<14;i++)parts.push({x:150+R(0,30),y:R(150,210),
+          vx:R(60,120),vy:R(-10,10),life:R(0.3,0.6),r:2,col:'#dff1fa'});
+        addFloat(240,90,'FLOOF!','#8ade7c');
+        S.zc=R(0.25,0.75);
+        if(S.hits>=3){const score=clamp(10-S.miss*2.5,2,10);
+          setTimeout(()=>startStyle(c,washScore,score),450);}
+      }else{S.miss++;S.shake=1;sBad();addFloat(240,90,'OOPS','#e06a6a');}},
+    draw(){
+      drawSalonBase();
+      const shx=S.shake?Math.sin(T*40)*2:0;
+      drawDog(250+shx,214,2.3,1,c.pal,
+        Object.assign({bob:1,fluff:1+S.hits*0.16+S.fl*0.3},c.opts||{}));
+      drawDog(130,236,1.4,1,JAMUN,{bob:1});
+      // hair dryer
+      ctx.fillStyle='#8a8a96';ctx.fillRect(146,186,18,10);ctx.fillRect(160,182,10,8);
+      ctx.fillStyle='#5c5c66';ctx.fillRect(150,196,6,10);
+      hud();
+      text('STEP 2: BLOW-DRY! ('+S.hits+'/3)',240,22,'#443626',7,'center');
+      text('click when the needle is in the GREEN',240,33,'#7a6a50',6,'center');
+      // meter
+      box(120,44,240,16,'#38294d','#4a3a63');
+      const zx=123+(S.zc-S.zw/2)*234;
+      ctx.fillStyle='#3f9e5c';ctx.fillRect(zx,47,S.zw*234,10);
+      const pos=0.5+0.48*Math.sin(S.ph);
+      ctx.fillStyle='#ffe66d';ctx.fillRect(123+pos*234-1,45,3,14);}};}
+
+// ---------------- minigame 3: styling ----------------
+function startStyle(c,ws,ds){
+  const OFF=[[-45,-52],[-14,-70],[20,-98],[44,-78],[2,-44],[-32,-92]];
+  const tg=OFF.map(o=>({x:240+o[0],y:214+o[1]}));
+  S={t:'style',c,ws,ds,idx:0,rt:1.5,pts:0,done:0,
+    update(dt){
+      if(S.idx>=tg.length)return;
+      S.rt-=dt;
+      if(S.rt<=0){addFloat(tg[S.idx].x,tg[S.idx].y,'MISS','#e06a6a');sBad();next();}},
+    down(x,y){
+      if(S.idx>=tg.length)return;
+      const t=tg[S.idx];
+      if(Math.hypot(x-t.x,y-t.y)<18){
+        const ring=4+(S.rt/1.5)*22,d=Math.abs(ring-7);
+        let p,label,col;
+        if(d<3.5){p=2;label='PERFECT!';col='#8ade7c';}
+        else if(d<9){p=1;label='GOOD';col='#ffe66d';}
+        else{p=0.5;label='EARLY';col='#e0a86a';}
+        S.pts+=p;sSnip();
+        puff(t.x,t.y,6,c.pal.fur,25);
+        addFloat(t.x,t.y-10,label,col);next();}},
+    draw(){
+      drawSalonBase();
+      box(196,208,110,10,'#e08aa8','#b05f7e');
+      drawDog(240,210,2.3,1,c.pal,
+        Object.assign({bob:1,fluff:1.4,bow:S.idx>=tg.length},c.opts||{}));
+      drawDog(360,236,1.4,-1,MISRI,{bob:1});
+      text('snip snip~',360,180,'#b05f7e',6,'center');
+      hud();
+      text('STEP 3: STYLE! CLICK THE SPARKLE ('+S.idx+'/'+tg.length+')',240,22,'#443626',7,'center');
+      text('click when the ring closes on the sparkle',240,33,'#7a6a50',6,'center');
+      if(S.idx<tg.length){
+        const t=tg[S.idx],ring=4+(S.rt/1.5)*22;
+        ctx.strokeStyle='#ff5d8f';ctx.lineWidth=2;
+        ctx.strokeRect(t.x-ring,t.y-ring,ring*2,ring*2);
+        ctx.fillStyle='#fff7a8';
+        ctx.fillRect(t.x-5,t.y-1,11,3);ctx.fillRect(t.x-1,t.y-5,3,11);}
+      // scissors cursor
+      if(mx>0){ctx.fillStyle='#c9ced4';
+        ctx.fillRect(mx-1,my-8,3,10);ctx.fillRect(mx-6,my-8,3,10);
+        ctx.fillStyle='#e06a8a';ctx.fillRect(mx-6,my+2,4,4);ctx.fillRect(mx,my+2,4,4);}}};
+  function next(){
+    S.idx++;S.rt=1.5;
+    if(S.idx>=tg.length){
+      sparkle(240,160,16);
+      const score=clamp(S.pts/12*10,0,10);
+      setTimeout(()=>result(c,ws,ds,score),1000);}}}
+
+// ---------------- result ----------------
+function result(c,ws,ds,ss){
+  const avg=(ws+ds+ss)/3;
+  let tip=Math.round(12+avg*2.8);
+  if(c.vip)tip*=10;
+  const stars=avg>=7.5?3:avg>=4.5?2:1;
+  sCoin();
+  S={t:'result',shown:0,
+    down(){game.coins+=tip;game.groomed++;sCoin();dayState();},
+    draw(){
+      drawSalonBase();hud();
+      box(70,44,340,180,'#fffdf2','#c9b98a');
+      drawDog(240,160,2.0,1,c.pal,
+        Object.assign({bob:1,tongue:1,fluff:1.35,bow:!c.opts||!c.opts.hat},c.opts||{}));
+      if(Math.random()<0.15)sparkle(240,120,2);
+      text(c.name+' IS GORGEOUS!',240,56,'#a3542e',8,'center');
+      for(let i=0;i<3;i++){
+        ctx.fillStyle=i<stars?'#ffb62e':'#d8ccb2';
+        const sx=214+i*18;
+        ctx.fillRect(sx,72,10,10);ctx.fillRect(sx+3,68,4,4);}
+      wrap('"'+c.bye+'"',42).forEach((ln,j)=>text(ln,240,172+j*10,'#443626',6,'center'));
+      text('TIP: '+tip+' Rs'+(c.vip?'  (x10 BILLIONAIRE SURCHARGE!)':''),
+        240,196,c.vip?'#3f9e5c':'#a3542e',c.vip?6:8,'center');
+      if(Math.sin(T*4)>-0.2)text('CLICK TO CONTINUE',240,236,'#8f7fb0',7,'center');}};}
+
+// ---------------- day end / ending ----------------
+function endDay(){
+  if(game.day<2)startDay(game.day+1);
+  else{
+    const ENDING=[
+     ['narr',"6 PM. A CAR PULLS UP OUTSIDE..."],
+     ['jamun',"ADITI'S HOME!! HIDE THE SALON!!"],
+     ['narr',"* POOF * ...two perfectly innocent dogs are sitting on the sofa."],
+     ['aditi',"Babies, I'm home! ...Why does the whole house smell like strawberry shampoo?"],
+     ['aditi',"And what is this jar with "+game.coins+" Rs labelled 'FOR ADITI. DO NOT LEND.'?"],
+     ['jamun',"Woof."],
+     ['misri',"Woof woof."],
+     ['narr',"Somewhere across town, a billionaire wonders why his pug smells SO good."]];
+    cut(ENDING,endScreen,i=>drawHome(i>=3,true));}}
+
+function endScreen(){
+  S={t:'end',
+    down(){title();},
+    draw(){
+      ctx.fillStyle='#1c2b4a';ctx.fillRect(0,0,W,H);
+      for(let i=0;i<30;i++){ctx.fillStyle='rgba(255,255,255,0.5)';
+        ctx.fillRect((i*97)%W,(i*53)%150,1,1);}
+      text('THE END',240,36,'#ffe66d',14,'center');
+      drawDog(200,150,1.5,1,JAMUN,{bob:1,tongue:1});
+      drawDog(280,150,1.5,-1,MISRI,{bob:1,bow:1});
+      if(Math.random()<0.2)sparkle(240,110,2);
+      text('DOGS GROOMED: '+game.groomed,240,170,'#9fb4d8',7,'center');
+      text('EARNED FOR ADITI: '+game.coins+' Rs',240,184,'#8ade7c',7,'center');
+      text('lending money to billionaires: cancelled',240,198,'#7a8db0',6,'center');
+      text('made with love for Aditi, Jamun & Misri',240,222,'#ff9fc6',6,'center');
+      if(Math.sin(T*4)>-0.2)text('- CLICK TO PLAY AGAIN -',240,244,'#ffe66d',7,'center');}};}
+
+// ---------------- input ----------------
+function toXY(e){
+  const r=cv.getBoundingClientRect();
+  const sc=Math.min(r.width/W,r.height/H);
+  const ox=(r.width-W*sc)/2,oy=(r.height-H*sc)/2;
+  return [(e.clientX-r.left-ox)/sc,(e.clientY-r.top-oy)/sc];}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();const a=ac();if(a&&a.state==='suspended')a.resume();
+  pdown=true;[mx,my]=toXY(e);
+  if(S&&S.down)S.down(mx,my);});
+cv.addEventListener('pointermove',e=>{[mx,my]=toXY(e);
+  if(S&&S.move)S.move(mx,my);});
+window.addEventListener('pointerup',()=>{pdown=false;if(S&&S.up)S.up();});
+
+// ---------------- main loop ----------------
+let last=0;
+function loop(t){
+  const dt=Math.min(0.05,(t-last)/1000)||0.016;last=t;T+=dt;
+  if(S&&S.update)S.update(dt);
+  updateParts(dt);
+  ctx.fillStyle='#141020';ctx.fillRect(0,0,W,H);
+  if(S)S.draw();
+  drawParts();
+  requestAnimationFrame(loop);}
+title();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
